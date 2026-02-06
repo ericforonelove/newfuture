@@ -1,0 +1,5 @@
+vanna
+openai
+pandas
+plotly
+flask
