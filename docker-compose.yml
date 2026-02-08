@@ -1,0 +1,111 @@
+version: "3.8"
+
+services:
+  # ---- PostgreSQL 数据库 ----
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wrenai
+      POSTGRES_PASSWORD: wrenai123
+      POSTGRES_DB: sales
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wrenai -d sales"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---- Ollama (本地千问模型) ----
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ---- Wren Engine (SQL 引擎) ----
+  wren-engine:
+    image: ghcr.io/canner/wren-engine:latest
+    restart: unless-stopped
+    environment:
+      # 数据源配置 - PostgreSQL
+      wren.datasource.type: POSTGRES
+      wren.datasource.jdbc-url: jdbc:postgresql://postgres:5432/sales
+      wren.datasource.user: wrenai
+      wren.datasource.password: wrenai123
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./mdl:/usr/src/app/mdl
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---- Wren AI Service (AI + 语义层) ----
+  wren-ai-service:
+    image: ghcr.io/canner/wren-ai-service:latest
+    restart: unless-stopped
+    environment:
+      # 使用 Ollama 本地千问模型
+      LLM_PROVIDER: ollama
+      OLLAMA_URL: http://ollama:11434
+      GENERATION_MODEL: qwen2.5:7b
+      EMBEDDING_MODEL: nomic-embed-text
+      # Wren Engine 连接
+      WREN_ENGINE_ENDPOINT: http://wren-engine:8080
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./mdl:/app/mdl
+    depends_on:
+      - wren-engine
+      - ollama
+
+  # ---- Wren UI (可选的官方 UI) ----
+  wren-ui:
+    image: ghcr.io/canner/wren-ui:latest
+    restart: unless-stopped
+    environment:
+      DB_TYPE: POSTGRES
+      PG_URL: postgres://wrenai:wrenai123@postgres:5432/sales
+      WREN_ENGINE_ENDPOINT: http://wren-engine:8080
+      WREN_AI_ENDPOINT: http://wren-ai-service:5556
+      PLATFORM: docker
+    ports:
+      - "3000:3000"
+    depends_on:
+      - wren-ai-service
+
+  # ---- 自定义前端 (问答 + 图表) ----
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      WREN_AI_ENDPOINT: http://wren-ai-service:5556
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: wrenai
+      PG_PASSWORD: wrenai123
+      PG_DATABASE: sales
+    depends_on:
+      - wren-ai-service
+      - postgres
+
+volumes:
+  pgdata:
+  ollama_data:

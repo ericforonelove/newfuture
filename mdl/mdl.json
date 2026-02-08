@@ -1,0 +1,156 @@
+{
+  "catalog": "sales",
+  "schema": "public",
+  "models": [
+    {
+      "name": "customers",
+      "tableReference": {
+        "catalog": "sales",
+        "schema": "public",
+        "table": "customers"
+      },
+      "columns": [
+        { "name": "id", "type": "INTEGER", "isCalculated": false, "properties": { "description": "客户唯一标识" } },
+        { "name": "name", "type": "VARCHAR", "isCalculated": false, "properties": { "description": "客户姓名" } },
+        { "name": "email", "type": "VARCHAR", "isCalculated": false, "properties": { "description": "客户邮箱" } },
+        { "name": "city", "type": "VARCHAR", "isCalculated": false, "properties": { "description": "客户所在城市" } },
+        { "name": "province", "type": "VARCHAR", "isCalculated": false, "properties": { "description": "客户所在省份" } },
+        { "name": "created_at", "type": "TIMESTAMP", "isCalculated": false, "properties": { "description": "客户注册时间" } }
+      ],
+      "primaryKey": "id",
+      "properties": {
+        "description": "客户信息表，存储所有注册客户的基本资料"
+      }
+    },
+    {
+      "name": "products",
+      "tableReference": {
+        "catalog": "sales",
+        "schema": "public",
+        "table": "products"
+      },
+      "columns": [
+        { "name": "id", "type": "INTEGER", "isCalculated": false, "properties": { "description": "产品唯一标识" } },
+        { "name": "name", "type": "VARCHAR", "isCalculated": false, "properties": { "description": "产品名称" } },
+        { "name": "category", "type": "VARCHAR", "isCalculated": false, "properties": { "description": "产品分类（电子产品、办公家具等）" } },
+        { "name": "unit_price", "type": "NUMERIC", "isCalculated": false, "properties": { "description": "产品单价（人民币）" } },
+        { "name": "stock_qty", "type": "INTEGER", "isCalculated": false, "properties": { "description": "库存数量" } }
+      ],
+      "primaryKey": "id",
+      "properties": {
+        "description": "产品目录表，包含所有在售产品信息和价格"
+      }
+    },
+    {
+      "name": "orders",
+      "tableReference": {
+        "catalog": "sales",
+        "schema": "public",
+        "table": "orders"
+      },
+      "columns": [
+        { "name": "id", "type": "INTEGER", "isCalculated": false, "properties": { "description": "订单唯一标识" } },
+        { "name": "customer_id", "type": "INTEGER", "isCalculated": false, "properties": { "description": "下单客户ID" } },
+        { "name": "order_date", "type": "DATE", "isCalculated": false, "properties": { "description": "下单日期" } },
+        { "name": "status", "type": "VARCHAR", "isCalculated": false, "properties": { "description": "订单状态: completed(已完成), cancelled(已取消)" } },
+        { "name": "total_amount", "type": "NUMERIC", "isCalculated": false, "properties": { "description": "订单总金额（人民币）" } }
+      ],
+      "primaryKey": "id",
+      "properties": {
+        "description": "订单主表，记录每笔交易的基本信息"
+      }
+    },
+    {
+      "name": "order_items",
+      "tableReference": {
+        "catalog": "sales",
+        "schema": "public",
+        "table": "order_items"
+      },
+      "columns": [
+        { "name": "id", "type": "INTEGER", "isCalculated": false, "properties": { "description": "订单明细唯一标识" } },
+        { "name": "order_id", "type": "INTEGER", "isCalculated": false, "properties": { "description": "关联订单ID" } },
+        { "name": "product_id", "type": "INTEGER", "isCalculated": false, "properties": { "description": "关联产品ID" } },
+        { "name": "quantity", "type": "INTEGER", "isCalculated": false, "properties": { "description": "购买数量" } },
+        { "name": "unit_price", "type": "NUMERIC", "isCalculated": false, "properties": { "description": "购买时单价（人民币）" } },
+        { "name": "subtotal", "type": "NUMERIC", "isCalculated": false, "properties": { "description": "小计金额（数量×单价）" } }
+      ],
+      "primaryKey": "id",
+      "properties": {
+        "description": "订单明细表，记录每笔订单中各产品的购买详情"
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "name": "orders_to_customers",
+      "models": ["orders", "customers"],
+      "joinType": "MANY_TO_ONE",
+      "condition": "orders.customer_id = customers.id",
+      "properties": {
+        "description": "订单关联到客户：每个订单属于一个客户"
+      }
+    },
+    {
+      "name": "order_items_to_orders",
+      "models": ["order_items", "orders"],
+      "joinType": "MANY_TO_ONE",
+      "condition": "order_items.order_id = orders.id",
+      "properties": {
+        "description": "订单明细关联到订单：每个明细属于一个订单"
+      }
+    },
+    {
+      "name": "order_items_to_products",
+      "models": ["order_items", "products"],
+      "joinType": "MANY_TO_ONE",
+      "condition": "order_items.product_id = products.id",
+      "properties": {
+        "description": "订单明细关联到产品：每个明细对应一个产品"
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "name": "total_revenue",
+      "baseModel": "orders",
+      "dimension": [],
+      "measure": [
+        {
+          "name": "revenue",
+          "type": "NUMERIC",
+          "operator": "SUM",
+          "expression": "total_amount",
+          "properties": { "description": "总营收（已完成订单）" }
+        }
+      ],
+      "timeGrain": [
+        { "name": "order_date", "refColumn": "order_date" }
+      ],
+      "properties": {
+        "description": "营收指标：统计已完成订单的总金额"
+      }
+    },
+    {
+      "name": "order_count",
+      "baseModel": "orders",
+      "dimension": [],
+      "measure": [
+        {
+          "name": "count",
+          "type": "INTEGER",
+          "operator": "COUNT",
+          "expression": "id",
+          "properties": { "description": "订单总数" }
+        }
+      ],
+      "timeGrain": [
+        { "name": "order_date", "refColumn": "order_date" }
+      ],
+      "properties": {
+        "description": "订单数量指标"
+      }
+    }
+  ],
+  "views": []
+}
