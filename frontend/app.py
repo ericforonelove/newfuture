@@ -13,7 +13,7 @@ import requests
 import streamlit as st
 
 # ---- 配置 ----
-WREN_AI_ENDPOINT = os.getenv("WREN_AI_ENDPOINT", "http://localhost:5556")
+WREN_AI_ENDPOINT = os.getenv("WREN_AI_ENDPOINT", "http://localhost:5555")
 PG_CONFIG = {
     "host": os.getenv("PG_HOST", "localhost"),
     "port": int(os.getenv("PG_PORT", "5432")),

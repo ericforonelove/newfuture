@@ -1,0 +1,50 @@
+# Wren AI Service 配置 - 使用 Ollama 本地千问模型
+# 通过 LiteLLM 兼容层连接 Ollama
+---
+type: llm
+provider: litellm_llm
+models:
+  - model: openai/qwen2.5:7b
+    api_base: http://host.docker.internal:11434/v1
+    api_key_name: LLM_OLLAMA_API_KEY
+    timeout: 600
+    kwargs:
+      n: 1
+      temperature: 0
+---
+type: embedder
+provider: litellm_embedder
+models:
+  - model: openai/nomic-embed-text
+    api_base: http://host.docker.internal:11434/v1
+    api_key_name: EMBEDDER_OLLAMA_API_KEY
+    timeout: 600
+---
+type: engine
+provider: wren_ui
+endpoint: http://wren-ui:3000
+---
+type: engine
+provider: wren_ibis
+endpoint: http://ibis-server:8000
+---
+type: document_store
+provider: qdrant
+location: http://qdrant:6333
+embedding_model_dim: 768
+timeout: 120
+recreate_index: true
+---
+type: pipeline
+pipes:
+  - name: indexing
+    embedder: litellm_embedder
+    document_store: qdrant
+  - name: retrieval
+    llm: litellm_llm
+    embedder: litellm_embedder
+    document_store: qdrant
+  - name: generation
+    llm: litellm_llm
+  - name: sql_correction
+    llm: litellm_llm

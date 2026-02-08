@@ -1,7 +1,11 @@
 version: "3.8"
 
+networks:
+  wren:
+    driver: bridge
+
 services:
-  # ---- PostgreSQL 数据库 ----
+  # ---- PostgreSQL 业务数据库 ----
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -14,83 +18,120 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - wren
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wrenai -d sales"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # ---- Ollama (本地千问模型) ----
-  # Mac Apple Silicon: 建议在宿主机直接运行 Ollama 以获得 Metal GPU 加速
-  # 详见 README 中的 Mac 启动方式
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
+  # ---- Bootstrap (初始化 Wren Engine 数据) ----
+  bootstrap:
+    image: ghcr.io/canner/wren-bootstrap:${WREN_BOOTSTRAP_VERSION}
+    platform: ${PLATFORM}
+    environment:
+      DATA_PATH: /app/data
     volumes:
-      - ollama_data:/root/.ollama
-    # 取消注释以下内容以启用 NVIDIA GPU（Linux 服务器）
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+      - wrendata:/app/data
+    command: /bin/sh /app/init.sh
+    networks:
+      - wren
 
   # ---- Wren Engine (SQL 引擎) ----
   wren-engine:
-    image: ghcr.io/canner/wren-engine:latest
+    image: ghcr.io/canner/wren-engine:${WREN_ENGINE_VERSION}
+    platform: ${PLATFORM}
     restart: unless-stopped
-    environment:
-      wren.datasource.type: POSTGRES
-      wren.datasource.jdbc-url: jdbc:postgresql://postgres:5432/sales
-      wren.datasource.user: wrenai
-      wren.datasource.password: wrenai123
+    expose:
+      - ${WREN_ENGINE_PORT}
+      - ${WREN_ENGINE_SQL_PORT}
     ports:
-      - "8080:8080"
+      - "${WREN_ENGINE_PORT}:${WREN_ENGINE_PORT}"
     volumes:
-      - ./mdl:/usr/src/app/mdl
-      - ./wren-engine-config/config.properties:/usr/src/app/etc/config.properties
+      - wrendata:/usr/src/app/etc
+      - ./data:/usr/src/app/data
+    networks:
+      - wren
     depends_on:
-      postgres:
-        condition: service_healthy
+      - bootstrap
 
-  # ---- Wren AI Service (AI + 语义层) ----
+  # ---- Ibis Server (数据源连接层) ----
+  ibis-server:
+    image: ghcr.io/canner/wren-engine-ibis:${IBIS_SERVER_VERSION}
+    platform: ${PLATFORM}
+    restart: unless-stopped
+    expose:
+      - ${IBIS_SERVER_PORT}
+    environment:
+      WREN_ENGINE_ENDPOINT: http://wren-engine:${WREN_ENGINE_PORT}
+    volumes:
+      - ./data:/usr/src/app/data
+    networks:
+      - wren
+
+  # ---- Qdrant (向量数据库) ----
+  qdrant:
+    image: qdrant/qdrant:v1.11.0
+    restart: unless-stopped
+    expose:
+      - "6333"
+      - "6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - wren
+
+  # ---- Wren AI Service (AI 语义层) ----
   wren-ai-service:
-    image: ghcr.io/canner/wren-ai-service:latest
+    image: ghcr.io/canner/wren-ai-service:${WREN_AI_SERVICE_VERSION}
+    platform: ${PLATFORM}
     restart: unless-stopped
-    environment:
-      # 使用 Ollama 本地千问模型
-      LLM_PROVIDER: ollama
-      OLLAMA_URL: http://ollama:11434
-      GENERATION_MODEL: qwen2.5:7b
-      EMBEDDING_MODEL: nomic-embed-text
-      # Wren Engine 连接
-      WREN_ENGINE_ENDPOINT: http://wren-engine:8080
+    expose:
+      - ${WREN_AI_SERVICE_PORT}
     ports:
-      - "5556:5556"
+      - "${AI_SERVICE_FORWARD_PORT}:${WREN_AI_SERVICE_PORT}"
+    environment:
+      PYTHONUNBUFFERED: 1
+      CONFIG_PATH: /app/config.yaml
+      WREN_ENGINE_ENDPOINT: http://wren-engine:${WREN_ENGINE_PORT}
+    env_file:
+      - .env
     volumes:
-      - ./mdl:/app/mdl
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data:ro
+    networks:
+      - wren
     depends_on:
-      - wren-engine
-      - ollama
+      - qdrant
 
-  # ---- Wren UI (可选的官方 UI) ----
+  # ---- Wren UI (官方管理界面) ----
   wren-ui:
-    image: ghcr.io/canner/wren-ui:latest
+    image: ghcr.io/canner/wren-ui:${WREN_UI_VERSION}
+    platform: ${PLATFORM}
     restart: unless-stopped
     environment:
-      DB_TYPE: POSTGRES
-      PG_URL: postgres://wrenai:wrenai123@postgres:5432/sales
-      WREN_ENGINE_ENDPOINT: http://wren-engine:8080
-      WREN_AI_ENDPOINT: http://wren-ai-service:5556
+      DB_TYPE: sqlite
+      SQLITE_FILE: /app/data/db.sqlite3
+      WREN_ENGINE_ENDPOINT: http://wren-engine:${WREN_ENGINE_PORT}
+      WREN_AI_ENDPOINT: http://wren-ai-service:${WREN_AI_SERVICE_PORT}
+      IBIS_SERVER_ENDPOINT: http://ibis-server:${IBIS_SERVER_PORT}
+      WREN_PRODUCT_VERSION: ${WREN_PRODUCT_VERSION}
+      GENERATION_MODEL: ${GENERATION_MODEL}
       PLATFORM: docker
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED}
+      POSTHOG_API_KEY: ${POSTHOG_API_KEY}
+      POSTHOG_HOST: ${POSTHOG_HOST}
+      USER_UUID: ${USER_UUID}
     ports:
-      - "3000:3000"
+      - "${HOST_PORT}:3000"
+    volumes:
+      - wrendata:/app/data
+    networks:
+      - wren
     depends_on:
       - wren-ai-service
+      - wren-engine
 
   # ---- 自定义前端 (问答 + 图表) ----
   frontend:
@@ -99,16 +140,19 @@ services:
     ports:
       - "8501:8501"
     environment:
-      WREN_AI_ENDPOINT: http://wren-ai-service:5556
+      WREN_AI_ENDPOINT: http://wren-ai-service:${WREN_AI_SERVICE_PORT}
       PG_HOST: postgres
       PG_PORT: 5432
       PG_USER: wrenai
       PG_PASSWORD: wrenai123
       PG_DATABASE: sales
+    networks:
+      - wren
     depends_on:
       - wren-ai-service
       - postgres
 
 volumes:
   pgdata:
-  ollama_data:
+  wrendata:
+  qdrant_data:
