@@ -44,7 +44,6 @@ services:
     image: ghcr.io/canner/wren-engine:latest
     restart: unless-stopped
     environment:
-      # 数据源配置 - PostgreSQL
       wren.datasource.type: POSTGRES
       wren.datasource.jdbc-url: jdbc:postgresql://postgres:5432/sales
       wren.datasource.user: wrenai
@@ -53,6 +52,7 @@ services:
       - "8080:8080"
     volumes:
       - ./mdl:/usr/src/app/mdl
+      - ./config/config.properties:/usr/src/app/etc/config.properties
     depends_on:
       postgres:
         condition: service_healthy
