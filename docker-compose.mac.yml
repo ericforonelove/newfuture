@@ -1,0 +1,19 @@
+# Mac Apple Silicon 覆盖配置
+# 使用方式: docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d
+#
+# 关键区别: Ollama 在宿主机原生运行以利用 Metal GPU 加速
+# 容器内的 Ollama 被禁用，所有 LLM 请求指向宿主机
+
+services:
+  # 禁用容器内的 Ollama，使用宿主机原生 Ollama
+  ollama:
+    profiles:
+      - disabled
+
+  # Wren AI Service 连接到宿主机的 Ollama
+  wren-ai-service:
+    environment:
+      OLLAMA_URL: http://host.docker.internal:11434
+    depends_on:
+      - wren-engine
+      # 移除对容器 ollama 的依赖

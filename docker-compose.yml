@@ -21,6 +21,8 @@ services:
       retries: 10
 
   # ---- Ollama (本地千问模型) ----
+  # Mac Apple Silicon: 建议在宿主机直接运行 Ollama 以获得 Metal GPU 加速
+  # 详见 README 中的 Mac 启动方式
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
@@ -28,13 +30,14 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # 取消注释以下内容以启用 NVIDIA GPU（Linux 服务器）
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
   # ---- Wren Engine (SQL 引擎) ----
   wren-engine:

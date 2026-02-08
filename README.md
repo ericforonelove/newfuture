@@ -23,16 +23,35 @@
 
 ## 快速开始
 
+### Mac Apple Silicon (M1/M2/M3/M4/M5) — 推荐
+
 ```bash
-# 1. 启动所有服务
+# 一键启动（自动安装 Ollama、拉取模型、启动服务）
+bash scripts/start-mac.sh
+```
+
+原理：Ollama 在 Mac 宿主机原生运行，利用 **Metal GPU 加速**推理，其他服务跑在 Docker 容器里。
+
+### Linux / 有 NVIDIA GPU 的服务器
+
+```bash
+# 1. 启动所有服务（Ollama 在容器内运行）
 docker compose up -d
 
-# 2. 拉取千问模型（首次需要）
+# 2. 拉取千问模型（首次需要，约 4.7GB）
 bash scripts/setup-ollama.sh
 
 # 3. 访问界面
 #    自定义前端:  http://localhost:8501
 #    Wren UI:    http://localhost:3000
+```
+
+### 停止服务
+
+```bash
+docker compose down          # Mac 自动用正确的 compose 文件
+# 或完全清理（含数据卷）
+docker compose down -v
 ```
 
 ## MDL 语义层
@@ -63,6 +82,8 @@ MDL (Modeling Definition Language) 定义在 `mdl/mdl.json`，包含：
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── app.py              # Streamlit 前端应用
+├── docker-compose.mac.yml  # Mac Apple Silicon 覆盖配置
 └── scripts/
-    └── setup-ollama.sh     # 模型下载脚本
+    ├── start-mac.sh        # Mac 一键启动脚本
+    └── setup-ollama.sh     # Linux 模型下载脚本
 ```
