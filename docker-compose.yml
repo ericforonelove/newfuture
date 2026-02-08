@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: wrenai123
       POSTGRES_DB: sales
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql
