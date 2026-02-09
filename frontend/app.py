@@ -30,11 +30,11 @@ st.caption("用自然语言提问，AI 自动生成 SQL 查询并可视化结果
 # ---- 工具函数 ----
 def ask_wren_ai(question: str) -> dict:
     """向 Wren AI 发送自然语言问题，获取 SQL"""
-    # 创建查询请求
+    # 创建查询请求 (API 字段是 query, 不是 question)
     resp = requests.post(
         f"{WREN_AI_ENDPOINT}/v1/asks",
-        json={"question": question},
-        timeout=30,
+        json={"query": question, "histories": []},
+        timeout=120,
     )
     resp.raise_for_status()
     query_id = resp.json().get("query_id")
