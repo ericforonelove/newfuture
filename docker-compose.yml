@@ -138,7 +138,7 @@ services:
     build: ./frontend
     restart: unless-stopped
     ports:
-      - "8501:8501"
+      - "8502:8501"
     environment:
       WREN_AI_ENDPOINT: http://wren-ai-service:${WREN_AI_SERVICE_PORT}
       PG_HOST: postgres
