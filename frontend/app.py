@@ -88,7 +88,7 @@ def ask_wren_ai(question: str) -> dict:
         except Exception as e:
             return {"error": f"查询任务状态失败: {e}"}
 
-        task = result.get("askingTask", {})
+        task = result.get("askingTask") or {}
         status = task.get("status", "")
 
         if status == "FINISHED":
