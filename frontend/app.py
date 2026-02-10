@@ -36,7 +36,8 @@ def ask_wren_ai(question: str) -> dict:
         json={"query": question, "histories": []},
         timeout=120,
     )
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        return {"error": f"API 返回 {resp.status_code}: {resp.text}"}
     query_id = resp.json().get("query_id")
 
     # 轮询等待结果
