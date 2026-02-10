@@ -13,7 +13,11 @@ import requests
 import streamlit as st
 
 # ---- 配置 ----
+# wren-ai-service 内部 API（需要 mdl_hash）
 WREN_AI_ENDPOINT = os.getenv("WREN_AI_ENDPOINT", "http://localhost:5555")
+# wren-ui API（自动处理 mdl_hash）
+WREN_UI_ENDPOINT = os.getenv("WREN_UI_ENDPOINT", "http://wren-ui:3000")
+
 PG_CONFIG = {
     "host": os.getenv("PG_HOST", "localhost"),
     "port": int(os.getenv("PG_PORT", "5432")),
@@ -28,12 +32,57 @@ st.caption("用自然语言提问，AI 自动生成 SQL 查询并可视化结果
 
 
 # ---- 工具函数 ----
+def get_deploy_hash() -> str:
+    """从 wren-ui 获取当前部署的 mdl_hash"""
+    query = """
+    query {
+      listModels {
+        id
+      }
+    }
+    """
+    # 尝试通过 GraphQL 获取最新 deploy hash
+    try:
+        resp = requests.post(
+            f"{WREN_UI_ENDPOINT}/api/graphql",
+            json={"query": "{ deploy { hash } }"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            deploy = data.get("data", {}).get("deploy", {})
+            if deploy and deploy.get("hash"):
+                return deploy["hash"]
+    except Exception:
+        pass
+
+    # 回退：直接调用 wren-ui 内部接口获取 mdl hash
+    try:
+        resp = requests.get(f"{WREN_UI_ENDPOINT}/api/config", timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("mdlHash", "")
+    except Exception:
+        pass
+
+    return ""
+
+
 def ask_wren_ai(question: str) -> dict:
     """向 Wren AI 发送自然语言问题，获取 SQL"""
-    # 创建查询请求 (API 字段是 query, 不是 question)
+    # 先获取 deploy hash
+    mdl_hash = get_deploy_hash()
+
+    # 构建请求体（与 wrenAIAdaptor.ts 中 ask() 方法一致）
+    payload = {
+        "query": question,
+        "histories": [],
+    }
+    if mdl_hash:
+        payload["id"] = mdl_hash
+
     resp = requests.post(
         f"{WREN_AI_ENDPOINT}/v1/asks",
-        json={"query": question, "histories": []},
+        json=payload,
         timeout=120,
     )
     if resp.status_code != 200:
@@ -41,21 +90,27 @@ def ask_wren_ai(question: str) -> dict:
     query_id = resp.json().get("query_id")
 
     # 轮询等待结果
-    for _ in range(60):
+    for _ in range(120):
         result = requests.get(
             f"{WREN_AI_ENDPOINT}/v1/asks/{query_id}/result",
             timeout=10,
         )
-        result.raise_for_status()
+        if result.status_code != 200:
+            return {"error": f"结果查询失败: {result.status_code}"}
         data = result.json()
 
         status = data.get("status")
         if status == "finished":
             return data
         elif status == "failed":
-            return {"error": data.get("error", "查询失败")}
+            error = data.get("error", {})
+            if isinstance(error, dict):
+                msg = error.get("message", str(error))
+            else:
+                msg = str(error)
+            return {"error": msg or "查询失败"}
 
-        time.sleep(1)
+        time.sleep(2)
 
     return {"error": "查询超时"}
 
