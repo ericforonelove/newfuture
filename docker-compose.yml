@@ -71,6 +71,8 @@ services:
       - wren
 
   # ---- Ollama (本地千问模型) ----
+  # Mac 用户: Ollama 应在宿主机运行以利用 Metal GPU
+  # 此容器仅供 Linux/有 NVIDIA GPU 的服务器使用
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
@@ -80,6 +82,8 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - wren
+    profiles:
+      - with-ollama
 
   # ---- Qdrant (向量数据库) ----
   qdrant:
@@ -115,7 +119,6 @@ services:
       - wren
     depends_on:
       - qdrant
-      - ollama
 
   # ---- Wren UI (官方管理界面) ----
   wren-ui:
