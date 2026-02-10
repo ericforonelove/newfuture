@@ -1,6 +1,6 @@
 """
 Wren AI 语义层查询前端
-用户提问 → Wren AI (千问模型) → MDL语义层 → SQL → PostgreSQL → 数据 → 图表
+用户提问 → Wren UI GraphQL → Wren AI (千问模型) → MDL语义层 → SQL → PostgreSQL → 数据 → 图表
 """
 
 import os
@@ -13,9 +13,7 @@ import requests
 import streamlit as st
 
 # ---- 配置 ----
-# wren-ai-service 内部 API（需要 mdl_hash）
-WREN_AI_ENDPOINT = os.getenv("WREN_AI_ENDPOINT", "http://localhost:5555")
-# wren-ui API（自动处理 mdl_hash）
+# 通过 wren-ui GraphQL API 提问（自动处理 mdl_hash）
 WREN_UI_ENDPOINT = os.getenv("WREN_UI_ENDPOINT", "http://wren-ui:3000")
 
 PG_CONFIG = {
@@ -31,88 +29,85 @@ st.title("📊 Wren AI 智能数据分析")
 st.caption("用自然语言提问，AI 自动生成 SQL 查询并可视化结果")
 
 
-# ---- 工具函数 ----
-def get_deploy_hash() -> str:
-    """从 wren-ui 获取当前部署的 mdl_hash"""
-    query = """
-    query {
-      listModels {
-        id
-      }
-    }
-    """
-    # 尝试通过 GraphQL 获取最新 deploy hash
-    try:
-        resp = requests.post(
-            f"{WREN_UI_ENDPOINT}/api/graphql",
-            json={"query": "{ deploy { hash } }"},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            deploy = data.get("data", {}).get("deploy", {})
-            if deploy and deploy.get("hash"):
-                return deploy["hash"]
-    except Exception:
-        pass
-
-    # 回退：直接调用 wren-ui 内部接口获取 mdl hash
-    try:
-        resp = requests.get(f"{WREN_UI_ENDPOINT}/api/config", timeout=10)
-        if resp.status_code == 200:
-            return resp.json().get("mdlHash", "")
-    except Exception:
-        pass
-
-    return ""
+# ---- GraphQL 工具 ----
+def graphql(query: str, variables: dict = None) -> dict:
+    """调用 wren-ui GraphQL API"""
+    resp = requests.post(
+        f"{WREN_UI_ENDPOINT}/api/graphql",
+        json={"query": query, "variables": variables or {}},
+        timeout=120,
+    )
+    data = resp.json()
+    if "errors" in data:
+        raise Exception(data["errors"][0].get("message", str(data["errors"])))
+    return data.get("data", {})
 
 
 def ask_wren_ai(question: str) -> dict:
-    """向 Wren AI 发送自然语言问题，获取 SQL"""
-    # 先获取 deploy hash
-    mdl_hash = get_deploy_hash()
-
-    # 构建请求体（与 wrenAIAdaptor.ts 中 ask() 方法一致）
-    payload = {
-        "query": question,
-        "histories": [],
-    }
-    if mdl_hash:
-        payload["id"] = mdl_hash
-
-    resp = requests.post(
-        f"{WREN_AI_ENDPOINT}/v1/asks",
-        json=payload,
-        timeout=120,
-    )
-    if resp.status_code != 200:
-        return {"error": f"API 返回 {resp.status_code}: {resp.text}"}
-    query_id = resp.json().get("query_id")
-
-    # 轮询等待结果
-    for _ in range(120):
-        result = requests.get(
-            f"{WREN_AI_ENDPOINT}/v1/asks/{query_id}/result",
-            timeout=10,
+    """通过 wren-ui GraphQL 提问，获取 AI 生成的 SQL"""
+    # Step 1: 创建 asking task
+    try:
+        result = graphql(
+            """
+            mutation CreateAskingTask($data: AskingTaskInput!) {
+                createAskingTask(data: $data) {
+                    id
+                }
+            }
+            """,
+            {"data": {"question": question}},
         )
-        if result.status_code != 200:
-            return {"error": f"结果查询失败: {result.status_code}"}
-        data = result.json()
+    except Exception as e:
+        return {"error": f"创建任务失败: {e}"}
 
-        status = data.get("status")
-        if status == "finished":
-            return data
-        elif status == "failed":
-            error = data.get("error", {})
-            if isinstance(error, dict):
-                msg = error.get("message", str(error))
-            else:
-                msg = str(error)
-            return {"error": msg or "查询失败"}
+    task_id = result.get("createAskingTask", {}).get("id")
+    if not task_id:
+        return {"error": f"未获取到 taskId: {result}"}
+
+    # Step 2: 轮询 asking task 结果
+    for _ in range(120):
+        try:
+            result = graphql(
+                """
+                query GetAskingTask($taskId: String!) {
+                    askingTask(taskId: $taskId) {
+                        status
+                        error {
+                            code
+                            message
+                        }
+                        candidates {
+                            type
+                            sql
+                        }
+                    }
+                }
+                """,
+                {"taskId": task_id},
+            )
+        except Exception as e:
+            return {"error": f"查询任务状态失败: {e}"}
+
+        task = result.get("askingTask", {})
+        status = task.get("status", "")
+
+        if status == "FINISHED":
+            candidates = task.get("candidates", [])
+            if candidates:
+                return {"sql": candidates[0].get("sql", ""), "candidates": candidates}
+            return {"error": "AI 未生成 SQL"}
+
+        elif status == "FAILED":
+            error = task.get("error", {})
+            msg = error.get("message", "未知错误") if error else "未知错误"
+            return {"error": msg}
+
+        elif status in ("STOPPED",):
+            return {"error": "任务已取消"}
 
         time.sleep(2)
 
-    return {"error": "查询超时"}
+    return {"error": "查询超时（超过 4 分钟）"}
 
 
 def run_sql(sql: str) -> pd.DataFrame:
@@ -183,7 +178,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown(
-        "**架构**: 用户问题 → Wren AI → MDL → SQL → PostgreSQL → 图表"
+        "**架构**: 用户问题 → Wren UI → Wren AI → SQL → PostgreSQL → 图表"
     )
 
 # ---- 主界面 ----
@@ -210,12 +205,17 @@ if question:
                 except Exception as e:
                     st.error(f"SQL 执行错误: {e}")
         else:
-            # 显示生成的 SQL
-            steps = result.get("response", [])
-            if steps:
-                sql = steps[0].get("sql", "")
+            sql = result.get("sql", "")
+            if sql:
                 with st.expander("📝 生成的 SQL", expanded=False):
                     st.code(sql, language="sql")
+
+                # 显示其他候选 SQL
+                candidates = result.get("candidates", [])
+                if len(candidates) > 1:
+                    with st.expander(f"📋 其他候选 SQL ({len(candidates)-1}个)"):
+                        for i, c in enumerate(candidates[1:], 2):
+                            st.code(c.get("sql", ""), language="sql")
 
                 # 执行 SQL
                 try:
@@ -229,6 +229,8 @@ if question:
                         auto_chart(df)
                 except Exception as e:
                     st.error(f"SQL 执行错误: {e}")
+            else:
+                st.warning("AI 未返回 SQL")
 
     else:  # 直接 SQL 模式
         sql = st.text_area("输入 SQL 查询：", height=120)
