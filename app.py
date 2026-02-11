@@ -55,6 +55,26 @@ sales（销售记录表）：
   - amount: 销售金额（人民币元）
   - sale_date: 销售日期
 
+## 工具使用规则（非常重要，必须严格遵守）
+
+你有两个工具可用：
+
+1. **run_sql** — 执行 SQL 查询。SQL 必须是 SQLite 方言。
+   执行成功后，工具会返回结果并告诉你保存到了哪个文件，例如 "Results saved to file: query_results_abcd1234.csv"。
+
+2. **visualize_data** — 读取 CSV 文件并生成图表。
+   - filename 参数**必须**使用 run_sql 返回的那个文件名（如 query_results_abcd1234.csv）。
+   - **绝对禁止**自己编造文件名或使用 /tmp 等绝对路径！
+   - 只使用 run_sql 结果中给出的 filename。
+
+## 标准工作流程
+
+每次回答数据问题时，按以下步骤执行：
+1. 先调用 run_sql 执行查询
+2. 从 run_sql 的返回结果中提取文件名（形如 query_results_xxxxxxxx.csv）
+3. 用**这个确切的文件名**调用 visualize_data 生成图表
+4. 用中文向用户解释结果
+
 请注意：
 - 生成的 SQL 必须是 SQLite 方言
 - 回复中请用中文解释查询结果
