@@ -43,7 +43,7 @@ def build_agent() -> Agent:
     sql_runner = SqliteRunner(database_path=config.DB_PATH)
 
     # ---- 本地文件系统（图表等产物存放） ----
-    file_system = LocalFileSystem(base_path="./output")
+    file_system = LocalFileSystem(working_directory="./output")
 
     # ---- 注册工具 ----
     tools = ToolRegistry()
