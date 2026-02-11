@@ -1,6 +1,6 @@
 # Vanna.ai + Qwen Text-to-SQL
 
-用 [Vanna.ai](https://vanna.ai/) 做框架，底座 LLM 替换为 **Qwen2.5:7b**（通过 OpenAI-compatible 接口），实现：
+用 [Vanna.ai](https://vanna.ai/) 2.0 做框架，底座 LLM 替换为 **Qwen2.5:7b**（通过 OpenAI-compatible 接口），实现：
 
 > 自然语言提问 → 生成 SQL → 执行查询 → 返回表格 & 图表
 
@@ -10,25 +10,36 @@
 用户提问（中文/英文）
         │
         ▼
-  ChromaDB 向量检索（匹配相似的 DDL / 文档 / 示例 SQL）
+  Vanna Agent（工具调度）
         │
-        ▼
-  Qwen2.5:7b（OpenAI-compat 接口）生成 SQL
-        │
-        ▼
-  SQLite 执行 SQL
-        │
-        ▼
-  Flask Web UI 展示表格 + Plotly 图表
+   ┌────┴────┐
+   ▼         ▼
+RunSqlTool  VisualizeDataTool
+   │              │
+   ▼              ▼
+Qwen2.5:7b    Plotly 图表
+生成 & 执行 SQL
+   │
+   ▼
+SQLite / 其他数据库
 ```
+
+**组件说明：**
+
+| 组件 | 实现 |
+|------|------|
+| LLM | `OpenAILlmService` → Qwen2.5:7b (Ollama) |
+| Agent Memory | `ChromaAgentMemory` → ChromaDB 本地持久化 |
+| SQL 执行 | `SqliteRunner` → SQLite |
+| 可视化 | `VisualizeDataTool` → Plotly |
+| Web UI | `VannaFlaskServer` → Flask |
 
 ## 项目结构
 
 ```
 ├── config.py          # Qwen 端点、数据库路径、ChromaDB 配置
-├── vanna_qwen.py      # 自定义 Vanna 类（ChromaDB + OpenAI_Chat）
 ├── init_demo_db.py    # 创建演示 SQLite 数据库
-├── app.py             # 主入口：训练 Vanna + 启动 Flask Web UI
+├── app.py             # 主入口：组装 Agent + 启动 Flask Web UI
 └── requirements.txt   # Python 依赖
 ```
 
@@ -86,20 +97,23 @@ QWEN_BASE_URL = "http://localhost:11434/v1"
 QWEN_API_KEY  = "ollama"
 QWEN_MODEL    = "qwen2.5:7b"
 
-# 数据库路径（换成 PostgreSQL / MySQL 需改 app.py 中的连接方式）
+# 数据库路径
 DB_PATH = "demo.db"
+
+# ChromaDB 持久化目录
+CHROMA_PATH = "./chroma_data"
 ```
 
 ## 换用其他数据库
 
-将 `app.py` 中的 `vn.connect_to_sqlite(...)` 替换为：
+将 `app.py` 中的 `SqliteRunner` 替换为对应的 Runner：
 
 ```python
 # PostgreSQL
-vn.connect_to_postgres(host="localhost", dbname="mydb", user="postgres", password="xxx", port=5432)
+from vanna.integrations.postgres.sql_runner import PostgresRunner
+sql_runner = PostgresRunner(host="localhost", dbname="mydb", user="postgres", password="xxx", port=5432)
 
 # MySQL
-vn.connect_to_mysql(host="localhost", dbname="mydb", user="root", password="xxx", port=3306)
+from vanna.integrations.mysql.sql_runner import MysqlRunner
+sql_runner = MysqlRunner(host="localhost", dbname="mydb", user="root", password="xxx", port=3306)
 ```
-
-同时更新 training 中的 DDL 为实际表结构。
