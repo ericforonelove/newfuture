@@ -47,8 +47,8 @@ def build_agent() -> Agent:
 
     # ---- 注册工具 ----
     tools = ToolRegistry()
-    tools.register(RunSqlTool(sql_runner=sql_runner, file_system=file_system))
-    tools.register(VisualizeDataTool(file_system=file_system))
+    tools.register_local_tool(RunSqlTool(sql_runner=sql_runner, file_system=file_system), access_groups=[])
+    tools.register_local_tool(VisualizeDataTool(file_system=file_system), access_groups=[])
 
     # ---- 组装 Agent ----
     agent = Agent(
