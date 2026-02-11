@@ -20,7 +20,17 @@ from vanna.core.agent.config import AgentConfig
 from vanna.core.registry import ToolRegistry
 from vanna.tools.run_sql import RunSqlTool
 from vanna.tools.visualize_data import VisualizeDataTool
+from vanna.core.user.resolver import UserResolver
+from vanna.core.user.models import User
+from vanna.core.user.request_context import RequestContext
 from vanna.servers.flask.app import VannaFlaskServer
+
+
+class AnonymousUserResolver(UserResolver):
+    """本地演示用，所有请求都返回同一个匿名用户。"""
+
+    async def resolve_user(self, request_context: RequestContext) -> User:
+        return User(id="local", username="local", groups=["admin"])
 
 
 def build_agent() -> Agent:
@@ -54,6 +64,7 @@ def build_agent() -> Agent:
     agent = Agent(
         llm_service=llm,
         tool_registry=tools,
+        user_resolver=AnonymousUserResolver(),
         agent_memory=memory,
         config=AgentConfig(
             stream_responses=True,
