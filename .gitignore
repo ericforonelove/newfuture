@@ -1,0 +1,7 @@
+*.tar.gz
+*.pyc
+__pycache__/
+.venv/
+chroma_data/
+output/
+demo.db
