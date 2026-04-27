@@ -2,20 +2,18 @@
 主入口：
 1. 用 OpenAILlmService 对接 Qwen（Ollama OpenAI-compat 接口）
 2. ChromaDB 做 Agent Memory
-3. SQLite 跑 SQL + Plotly 可视化
+3. PostgreSQL/GaussDB 跑 SQL + Plotly 可视化
 4. Flask Web UI 提供交互界面
 """
 
 import os
-import sqlite3
-import json
 
+import psycopg2
 import config
-from init_demo_db import create_demo_db
 
 from vanna.integrations.openai.llm import OpenAILlmService
 from vanna.integrations.chromadb.agent_memory import ChromaAgentMemory
-from vanna.integrations.sqlite.sql_runner import SqliteRunner
+from vanna.integrations.postgres.sql_runner import PostgresRunner
 from vanna.integrations.local.file_system import LocalFileSystem
 from vanna.core.agent.agent import Agent
 from vanna.core.agent.config import AgentConfig
@@ -36,30 +34,13 @@ CHINESE_SYSTEM_PROMPT = """你是一个专业的数据库助手，请始终用�
 2. 执行 SQL 并展示结果
 3. 用图表可视化数据
 
-数据库中有以下表：
-
-departments（部门表）：
-  - id: 部门ID
-  - name: 部门名称（工程部、市场部、销售部、人事部）
-
-employees（员工表）：
-  - id: 员工ID
-  - name: 姓名
-  - department_id: 所属部门ID
-  - salary: 薪资（人民币元）
-  - hire_date: 入职日期
-
-sales（销售记录表）：
-  - id: 记录ID
-  - employee_id: 员工ID（仅销售部员工）
-  - amount: 销售金额（人民币元）
-  - sale_date: 销售日期
+你连接的是 PostgreSQL（GaussDB 兼容）数据库。
 
 ## 工具使用规则（非常重要，必须严格遵守）
 
 你有两个工具可用：
 
-1. **run_sql** — 执行 SQL 查询。SQL 必须是 SQLite 方言。
+1. **run_sql** — 执行 SQL 查询。SQL 必须是 PostgreSQL 方言。
    执行成功后，工具会返回结果并告诉你保存到了哪个文件，例如 "Results saved to file: query_results_abcd1234.csv"。
 
 2. **visualize_data** — 读取 CSV 文件并生成图表。
@@ -76,9 +57,11 @@ sales（销售记录表）：
 4. 用中文向用户解释结果
 
 请注意：
-- 生成的 SQL 必须是 SQLite 方言
+- 生成的 SQL 必须是 PostgreSQL 方言（支持 GaussDB）
 - 回复中请用中文解释查询结果
 - 如果用户的问题不明确，请用中文追问
+- 如果不确定表结构，先用 SELECT * FROM information_schema.tables WHERE table_schema='public' 查看可用表
+- 查看字段用 SELECT column_name, data_type FROM information_schema.columns WHERE table_name='表名'
 """
 
 
@@ -90,7 +73,7 @@ class AnonymousUserResolver(UserResolver):
 
 
 def build_agent() -> Agent:
-    """组装 Vanna 2.0 Agent：Qwen LLM + ChromaDB + SQLite。"""
+    """组装 Vanna 2.0 Agent：Qwen LLM + ChromaDB + PostgreSQL。"""
 
     # ---- LLM: Qwen via OpenAI-compatible API ----
     llm = OpenAILlmService(
@@ -105,8 +88,15 @@ def build_agent() -> Agent:
         collection_name="vanna_qwen_memory",
     )
 
-    # ---- SQL Runner: SQLite ----
-    sql_runner = SqliteRunner(database_path=config.DB_PATH)
+    # ---- SQL Runner: PostgreSQL / GaussDB ----
+    sql_runner = PostgresRunner(
+        host=config.PG_HOST,
+        port=config.PG_PORT,
+        database=config.PG_DATABASE,
+        user=config.PG_USER,
+        password=config.PG_PASSWORD,
+        **config.PG_EXTRA,
+    )
 
     # ---- 本地文件系统（图表等产物存放） ----
     file_system = LocalFileSystem(working_directory="./output")
@@ -138,7 +128,7 @@ DATA_PAGE_HTML = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>演示数据预览</title>
+<title>数据库表预览</title>
 <style>
   body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
          max-width: 960px; margin: 40px auto; padding: 0 20px; color: #333; }
@@ -150,11 +140,15 @@ DATA_PAGE_HTML = """<!DOCTYPE html>
   tr:nth-child(even) { background: #f9f9f9; }
   .back { display: inline-block; margin-top: 20px; color: #0066cc; text-decoration: none; }
   .back:hover { text-decoration: underline; }
+  .info { background: #f0f7ff; border: 1px solid #c0d8f0; padding: 12px; border-radius: 6px; margin-bottom: 20px; }
 </style>
 </head>
 <body>
-<h1>演示数据预览</h1>
-<p>以下是 <code>demo.db</code> 中的全部数据，你可以基于这些数据在聊天界面提问。</p>
+<h1>数据库表预览</h1>
+<div class="info">
+  <strong>连接信息：</strong> %s:%s / %s<br>
+  <strong>提示：</strong> 以下展示各表前 20 条记录，完整数据请在聊天界面用 SQL 查询。
+</div>
 %s
 <a class="back" href="/">← 返回聊天</a>
 </body>
@@ -173,10 +167,6 @@ def render_table(title, headers, rows):
 
 
 def main():
-    # 演示数据库不存在就先创建
-    if not os.path.exists(config.DB_PATH):
-        create_demo_db()
-
     agent = build_agent()
 
     # 创建 Flask 应用
@@ -189,33 +179,41 @@ def main():
     # ---- 自定义路由：数据预览 ----
     @app.route("/data")
     def data_preview():
-        conn = sqlite3.connect(config.DB_PATH)
+        conn = psycopg2.connect(
+            host=config.PG_HOST,
+            port=config.PG_PORT,
+            database=config.PG_DATABASE,
+            user=config.PG_USER,
+            password=config.PG_PASSWORD,
+            **config.PG_EXTRA,
+        )
         cur = conn.cursor()
         tables_html = ""
 
-        cur.execute("SELECT id, name FROM departments ORDER BY id")
-        tables_html += render_table(
-            "departments（部门表）",
-            ["ID", "部门名称"],
-            cur.fetchall(),
-        )
+        # 查出所有 public schema 下的表
+        cur.execute("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public' ORDER BY table_name
+        """)
+        table_names = [row[0] for row in cur.fetchall()]
 
-        cur.execute("SELECT e.id, e.name, d.name, e.salary, e.hire_date FROM employees e JOIN departments d ON e.department_id = d.id ORDER BY e.id")
-        tables_html += render_table(
-            "employees（员工表）",
-            ["ID", "姓名", "部门", "薪资（元）", "入职日期"],
-            cur.fetchall(),
-        )
+        for table_name in table_names:
+            cur.execute(f"SELECT * FROM \"{table_name}\" LIMIT 20")
+            headers = [desc[0] for desc in cur.description]
+            rows = cur.fetchall()
+            tables_html += render_table(
+                f"{table_name}（前 20 条）",
+                headers,
+                rows,
+            )
 
-        cur.execute("SELECT s.id, e.name, s.amount, s.sale_date FROM sales s JOIN employees e ON s.employee_id = e.id ORDER BY s.id")
-        tables_html += render_table(
-            "sales（销售记录表）",
-            ["ID", "员工", "金额（元）", "销售日期"],
-            cur.fetchall(),
-        )
-
+        cur.close()
         conn.close()
-        return DATA_PAGE_HTML % tables_html
+
+        return DATA_PAGE_HTML % (
+            config.PG_HOST, config.PG_PORT, config.PG_DATABASE,
+            tables_html,
+        )
 
     # 启动
     app.run(host="0.0.0.0", port=8084)
