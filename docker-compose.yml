@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  vanna-qwen:
+    build: .
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./chroma_data:/app/chroma_data
+      - ./output:/app/output
+    restart: unless-stopped
