@@ -1,8 +1,7 @@
-# ---------- Qwen / OpenAI-compatible endpoint ----------
-# Ollama 本地部署，通过 OpenAI-compatible 接口调用
-QWEN_BASE_URL = "http://localhost:11434/v1"
-QWEN_API_KEY  = "ollama"
-QWEN_MODEL    = "qwen2.5:7b"
+# ---------- LLM (内部模型服务，OpenAI-compatible 接口) ----------
+QWEN_BASE_URL = "http://10.18.0.104:30111/v1/"
+QWEN_API_KEY  = "aiap-2025"
+QWEN_MODEL    = "openai/qwen3-30b-moe-normal"
 
 # ---------- Database (PostgreSQL / GaussDB) ----------
 PG_HOST     = "192.168.1.100"       # 改成你的数据库 IP
@@ -18,7 +17,3 @@ PG_EXTRA    = {
 
 # ---------- Vanna ChromaDB ----------
 CHROMA_PATH = "./chroma_data"
-
-# ---------- Ollama 离线部署 ----------
-# 模型文件存放目录（离线拷贝过来的）
-OLLAMA_MODELS_DIR = "/opt/ollama/models"
