@@ -15,5 +15,10 @@ PG_EXTRA    = {
     # "connect_timeout": 10,
 }
 
+# ---------- Embedding (内部嵌入模型) ----------
+EMBED_BASE_URL = "http://10.18.0.104:30111/v1/"
+EMBED_API_KEY  = "aiap-2025"
+EMBED_MODEL    = "openai/em01"
+
 # ---------- Vanna ChromaDB ----------
 CHROMA_PATH = "./chroma_data"

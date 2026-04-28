@@ -11,6 +11,7 @@ import os
 import psycopg2
 import config
 
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 from vanna.integrations.openai.llm import OpenAILlmService
 from vanna.integrations.chromadb.agent_memory import ChromaAgentMemory
 from vanna.integrations.postgres.sql_runner import PostgresRunner
@@ -82,10 +83,16 @@ def build_agent() -> Agent:
         api_key=config.QWEN_API_KEY,
     )
 
-    # ---- Agent Memory: ChromaDB ----
+    # ---- Agent Memory: ChromaDB + 内部 Embedding 模型 ----
+    embedding_fn = OpenAIEmbeddingFunction(
+        api_key=config.EMBED_API_KEY,
+        api_base=config.EMBED_BASE_URL,
+        model_name=config.EMBED_MODEL,
+    )
     memory = ChromaAgentMemory(
         persist_directory=config.CHROMA_PATH,
         collection_name="vanna_qwen_memory",
+        embedding_function=embedding_fn,
     )
 
     # ---- SQL Runner: PostgreSQL / GaussDB ----
